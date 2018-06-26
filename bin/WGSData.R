@@ -1,8 +1,8 @@
 ##General set of commands to analyze and process WGS data
 ##
 
-library(synapseClient)
-synapseLogin()
+library(synapser)
+synLogin()
 library(data.table)
 
 require(dplyr)
@@ -13,7 +13,7 @@ require(pheatmap)
 #cancer.gene.muts<-read.table(synGet('syn5611520')@filePath,header=T,sep='\t')
 
 if(!exists('all.gene.muts'))
-  all.gene.muts<-read.table(synGet('syn5839666')@filePath,header=T,sep='\t')
+  all.gene.muts<-read.table(synGet('syn5839666')$path,header=T,sep='\t')
 
 if(!exists('cancer.gene.muts')){
  cancer.genes=unique(read.table('../../data/Census_allTue Jan 19 18-58-56 2016.csv',sep=',',header=T,quote='"')$Gene.Symbol)
@@ -35,7 +35,7 @@ doPatientHeatmap<-function(mut.tab,title,fname,minSamples=1){
   variants=num.variants$Variants
   names(variants)=num.variants$Hugo_Symbol
   
-  ##now filter by minCount
+  ##now filt by minCount
   mut.counts=mut.counts[which(apply(mut.counts,1,function(x) length(which(x>0)))>minSamples),]
   
   
@@ -65,7 +65,7 @@ panPatientPlots<-function(mutTable=all.gene.muts,minSamples=2,notIncluded=c(),pr
   
   #get somatic mutants, then plot
   som.muts=subset(mutTable,Mutation_Status=='Somatic')
-  #now filter by minSamples value
+  #now filt by minSamples value
   som.sample.count=som.muts%>%group_by(Hugo_Symbol)%>%summarize(Samples=n_distinct(Sample_ID))
   genes.to.plot=as.character(som.sample.count$Hugo_Symbol[which(som.sample.count$Samples>minSamples)])
   som.muts=som.muts[which(as.character(som.muts$Hugo_Symbol)%in%genes.to.plot),]
@@ -100,10 +100,10 @@ panPatientPlots<-function(mutTable=all.gene.muts,minSamples=2,notIncluded=c(),pr
 #' @param mut.type can be 'all' (default),'somatic' or 'germline'
 #' @return table describing entities of  all MAF files on synapse
 getMAFs<-function(mut.type='all'){
-
-  allmafs<-synapseQuery("select * from entity where parentId=='syn5522808'")
-  som.mafs<-allmafs[which(allmafs$entity.tissueType=='tumorVsNormal'),]
-  gl.mafs<-allmafs[which(allmafs$entity.tissueType=='PBMC'),]
+  
+  allmafs <- synTableQuery("SELECT * FROM syn12555329 where parentId='syn5522808'") %>% as.data.frame()
+  som.mafs<-allmafs[which(allmafs$tissue=='primary tumor,blood'),]
+  gl.mafs<-allmafs[which(allmafs$tissue=='blood'),]
 
   if(tolower(mut.type)=='all')
     return(allmafs)
@@ -121,9 +121,9 @@ getMAFs<-function(mut.type='all'){
 #'@return list of tables
 getMutationSummary<-function(allmafs=getMAFs('all')){
 
-    allMuts<-sapply(allmafs$entity.id,function(x){
+    allMuts<-sapply(allmafs$id,function(x){
         res<-synGet(x)
-        tab<-read.table(gzfile(res@filePath),sep='\t',header=T)
+        tab<-read.table(gzfile(res$path),sep='\t',header=T, colClasses = "character")
 
     })
 }
@@ -132,7 +132,7 @@ getMutationSummary<-function(allmafs=getMAFs('all')){
 #library(parallel)
 
 
-#'Takes original MAF files and filters by predicted 'impact' and/or patient.  Will include both
+#'Takes original MAF files and filts by predicted 'impact' and/or patient.  Will include both
 #'Somatic and Germline mutations, because they are both in the original MAF files for each tumor
 #'@param som.mafs  MAFs to be analyzed - the somatic files include both the somatic and germline
 #'@param impact can be "HIGH",'MODERATE' or 'LOW'
@@ -150,7 +150,7 @@ storeSomMutationFiles<-function(som.mafs=getMAFs('somatic'),impact='HIGH',patien
         fname=paste('patient',gsub('CT0+','',res@annotations$patientId),'tissue',res@annotations$tissueID,impact,'impact_somaticMutations.maf',sep='_')
         if(! file.exists(fname)){
             tab<-as.data.frame(fread(paste('zcat',fp)))
-                                        #dont filter by consequence
+                                        #dont filt by consequence
                                         #vars<-tab[which(tab$Consequence%in%mutClasses),]
             if(!is.na(impact))
                 vars<-tab[which(tab$IMPACT==impact),]
@@ -169,29 +169,29 @@ storeSomMutationFiles<-function(som.mafs=getMAFs('somatic'),impact='HIGH',patien
     return(allMuts)
 }
 
-#'getAllMutData is a function that will take a mutation maf table and filter
+#'getAllMutData is a function that will take a mutation maf table and filt
 #'by whether or not a particular mutation is somatic or germline
 #'@param allsoms is a table of all mutations of a particular gene, impact or patient
 #'@return list of two tables 'Somatic' is table of somatic mutations while 'Germline' is table of germline
-getAllMutData<-function(allsoms=getMAFs('all'),filter=c()){
+getAllMutData<-function(allsoms=getMAFs('all'),filt=c()){
   ##this function will get the number of 'high impact' somatic mutations as well
   ##as the
    #try to create matrix.
   ##first read in all files
 
-  allmuts<-lapply(allsoms$entity.id,function(x) {
+  allmuts<-lapply(allsoms$id,function(x) {
     print(paste('read in',x))
-    read.table(synGet(x)@filePath,sep=' ',header=T,quote='"')
+    read.table(synGet(x)$path,sep=' ',header=T,quote='"', colClasses = "character")
     })
 
-  names(allmuts)<-allsoms$entity.id
-
+  names(allmuts)<-allsoms$id
+  
   ##now split out somatic or germline
   som.germ<<-lapply(allmuts,function(x){
  #  print(paste('Separating out germline/somatic for sample',x))
-    fout=which(as.character(x$FILTER)%in%filter)
+    fout=which(as.character(x$FILTER)%in%filt)
     if(length(fout)>0){
-        print(paste('Keeping',length(fout),'out of',nrow(x),'because they are',paste(filter,collapse=',')))
+        print(paste('Keeping',length(fout),'out of',nrow(x),'because they are',paste(filt,collapse=',')))
         x=x[fout,]
     }
     is.germ=apply(x,1,function(y){
@@ -202,7 +202,7 @@ getAllMutData<-function(allsoms=getMAFs('all'),filter=c()){
     return(list(Somatic=x[which(is.som),],Germline=x[which(is.germ),]))
   })
 
-  return(som.germ)
+ return(som.germ)
 }
 
 
@@ -211,24 +211,26 @@ getAllMutData<-function(allsoms=getMAFs('all'),filter=c()){
 #'@param impact is a list of which mutations to include, defaults to all ('HIGH','MODERATE' and 'LOW')
 #'@param doPlot: if set to true, will plot some basic statistics about where and when this mutation occurs
 #'@param som.germ - the MAF file tables separated by whether or not the mutation is somatic or germline
-getMutationStatsForGene<-function(gene='NF1',impact=c('HIGH','MODERATE','LOW'),doPlot=FALSE,filter=c(),som.germ=getAllMutData(filter=filter),redo=FALSE){
+
+getMutationStatsForGene<-function(gene='NF1',impact=c('HIGH','MODERATE','LOW'),doPlot=FALSE,filt=c(),som.germ=NULL,redo=FALSE){
 
   ##first check to see if we have the file already on synapse
-  if(gene%in%all.gene.muts$Hugo_Symbol && !redo){
-    print(paste('Found gene',gene,' already processed, will analyze mutations of all impact (impact argument ignored'))
-    df=subset(all.gene.muts,Hugo_Symbol==gene)
-  }else{
-    print(paste('No evidence of',gene,'in mutation data'))
-    if(!redo){
-      print('Set redo=TRUE to double check')
-      return(data.frame())
-    }
+   if(gene%in%all.gene.muts$Hugo_Symbol && !redo){
+     print(paste('Found gene',gene,' already processed, will analyze mutations of all impact (impact argument ignored'))
+     df=subset(all.gene.muts,Hugo_Symbol==gene)
+   }else{
+     print(paste('No evidence of',gene,'in mutation data'))
+     if(!redo){
+       print('Set redo=TRUE to double check')
+     return(data.frame())
+     }
+     
     if(is.null(som.germ)){
-      allsoms<-synapseQuery("select * from entity where parentId=='syn5578958'")
+      allsoms<-synTableQuery("SELECT * FROM syn12555329 where parentId='syn5578958'") %>% as.data.frame()
       print(paste('Selecting from',nrow(allsoms),'mutation files'))
-      allsoms=allsoms[unlist(sapply(impact,grep,allsoms$entity.name)),]
+      allsoms=allsoms[unlist(sapply(impact,grep,allsoms$name)),]
       print(paste("Found",nrow(allsoms),'with',paste(impact,collapse=' or '),'impact'))
-      som.germ=getAllMutData(allsoms,filter=filter)
+      som.germ=getAllMutData(allsoms,filt=filt)
     #df<-apply(allsoms,1,function(x){
     }
     classes=c()
@@ -245,11 +247,14 @@ getMutationStatsForGene<-function(gene='NF1',impact=c('HIGH','MODERATE','LOW'),d
     ref_al=c()
     var_al=c()
     sid=c()
+    exac=c()
+    gmaf=c()
+    i <- 1
     for(i in 1:nrow(allsoms)){
       x=allsoms[i,]
   
-      arr=unlist(strsplit(x[['entity.name']],split='_'))
-      mv=som.germ[[x[['entity.id']]]]
+      arr=unlist(strsplit(x[['name']],split='_'))
+      mv=som.germ[[x[['id']]]]
       for(mt in c("Somatic","Germline")){
         mvl=mv[[mt]]
         idx=c()
@@ -269,7 +274,8 @@ getMutationStatsForGene<-function(gene='NF1',impact=c('HIGH','MODERATE','LOW'),d
           ra=as.character(mvl[idx,'Reference_Allele'])
           ref_al=c(ref_al,ra)
           var_al=c(var_al,apply(mvl[idx,grep('_Allele',colnames(mvl))[1:3]],1,function(y){ if(y[1]!=y[2]) return(y[2]) else return(y[3])}))
-  
+          exac=c(exac,mvl[idx,'ExAC_AF'])
+          gmaf=c(gmaf,mvl[idx,'GMAF'])
           pats=c(pats,rep(arr[2],length(idx)))
           tissue=c(tissue,rep(arr[4],length(idx)))
           mutType=c(mutType,rep(mt,length(idx)))
@@ -285,7 +291,8 @@ getMutationStatsForGene<-function(gene='NF1',impact=c('HIGH','MODERATE','LOW'),d
         Start_Position=mut_start,End_Position=mut_end,
         Reference_Allele=ref_al,Variant_Allele=var_al,
         Mutation_Type=classes,TumorDepth=t_depth,
-        Position=pos,Tissue=tissue,Patient=pats)
+        Position=pos,Tissue=tissue,Patient=pats,ExAC_AF=exac,
+        GMAF=gmaf)
   
     
     ##the mindf files are visible via cbioportal.

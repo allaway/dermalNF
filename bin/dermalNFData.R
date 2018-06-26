@@ -7,6 +7,7 @@
 library(synapseClient)
 synapseLogin()
 library(data.table)
+library(dplyr)
 require(parallel)
 
 #################
@@ -14,18 +15,15 @@ require(parallel)
 #################
 
 cnv_annotations<-function(){
-    snpfiles=synapseQuery('SELECT id,name,patientID,tissueType,tissueID,alternateTumorID FROM entity where parentId=="syn5004874"')
+    snpfiles=synapseQuery('SELECT id,name, individualID,tissue,specimenID FROM entity where parentId=="syn5004874"')
 
-    names(snpfiles)<-c('tissueType','patientId','alternateTumorId','File','tissueId','synapseId')
-    snpfiles=snpfiles[which(!is.na(snpfiles$patientId)),]
+    names(snpfiles)<-c('individualID','specimenId','File','synapseId','tissueType')
+    snpfiles=snpfiles %>% filter(individualID != "NULL")
     return(snpfiles)
 }
 
 cnv.dat<-cnv_annotations()
-cnv.dat<-cnv.dat[which(!is.na(cnv.dat$patientId)),]
-patients<-cnv.dat$patientId
-names(patients)<-sapply(cnv.dat$File,function(x) gsub('3096-PBK-','X',gsub('_Final.csv','',x)))
-patients<-sapply(patients,function(x) gsub("CT0*","",x))
+patients<-cnv.dat$individualID
 names(patients)<-cnv.dat$synapseId
 clnames<-paste(patients,cnv.dat$tissueId)
 names(clnames)<-names(patients)
@@ -443,7 +441,7 @@ prot_normalized<-function(store=FALSE,all.expr=TRUE){
 patient_tumor_number_rna<-function(idlist,quant='cuffLinks'){
   if(tolower(quant)=='cufflinks'){
     ##the PBK ids are missing from table, so need to query annotations
-    res<-synQuery("select patientID,tissueID,sampleID from entity where parentId=='syn5492805'")
+    res<-synQuery("select individualID,specimenID from entity where parentId=='syn5492805'")
     # map<-unique(res)
   
     #from table get generic tumor id
@@ -475,21 +473,21 @@ patient_tumor_number_rna<-function(idlist,quant='cuffLinks'){
 }
 
 rna_annotations<-function(){
-    synq=synapseQuery("select name,id,patientID,tissueID,alternateTumorID from entity where parentId=='syn5493036'")
-    colnames(synq)<-c('patientId','alternateTumorId','fileName','tissueId','synapseId')
+    synq= synapseQuery("SELECT id,name, individualID,tissue,specimenID FROM entity where parentId=='syn5493036'")
+    colnames(synq)<-c('individualID','specimenId','File','synapseId','tissueType')
     synq=synq[grep('_featureCounts.txt',synq$fileName),]
     return(synq)
 }
 
 rna_cufflinks_annotations<-function(){
-  synq=synapseQuery("select sampleID,patientID,tissueID,tissueType,alternateTumorID from entity where parentId=='syn5492805'")
-  colnames(synq)<-c('tissueType','patientID','sampleID','altTumorID','tissueID','synapseID')
+  synq=synapseQuery("SELECT id,name, individualID,tissue,specimenID FROM entity where parentId=='syn5492805'")
+  colnames(synq)<-c('individualID','specimenId','File','synapseId','tissueType')
   return(synq)
 }
 
 rna_bam_annotations<-function(){
-    synq=synapseQuery("select name,id,patientID,tissueID,alternateTumorID from entity where parentId=='syn4984620'")
-    colnames(synq)<-c('patientID','alternateTumorId','fileName','tissueId','synapseId')
+    synq=synapseQuery("SELECT id,name, individualID,tissue,specimenID FROM entity where parentId=='syn4984620'")
+    colnames(synq)<-c('individualID','specimenId','File','synapseId','tissueType')
     synq=synq[grep('.bam$',synq$fileName),]
     return(synq)
 }
@@ -498,7 +496,7 @@ rna_bam_annotations<-function(){
 rna_count_matrix<-function(stored=TRUE,doNorm=FALSE,minCount=0,doLogNorm=FALSE,doVoomNorm=FALSE){
 
     if(!stored){
-        synq=synapseQuery("select name,id,patientID,tissueID from entity where parentId=='syn5493036'")
+        synq=synapseQuery("SELECT id,name, individualID,tissue,specimenID FROM entity where parentId=='syn5493036'")
         synq<-synq[grep("accepted_hits",synq$entity.name),]
         synfiles<-sapply(synq$entity.id,synGet)
                                         #now read in alfilel values
@@ -571,8 +569,8 @@ rna_count_matrix<-function(stored=TRUE,doNorm=FALSE,minCount=0,doLogNorm=FALSE,d
 }
 
 fpkm_annotations<-function(x){
-  fpkm_files=synQuery("select sampleID,tissueID,patientID from entity where parentId=='syn5492805'")
-  colnames(fpkm_files)<-c('patient','sample','tissue','entity')
+  fpkm_files=synQuery("SELECT id,name, individualID,tissue,specimenID FROM entity where parentId=='syn5492805'")
+  colnames(fpkm_files)<-c('individualID','specimenId','File','synapseId','tissueType')
   tumNum<-synTableQuery('select Patient,RnaID,TumorNumber from syn5556216 where RNASeq is not NULL')@values
 
   fpkm_files$patient=sapply(fpkm_files$patient,function(x) gsub('CT0+','',x))
